@@ -16,7 +16,19 @@ export default defineConfig(({ mode }) => {
       },
       build: {
         // Target older syntax so Apps Script's sandboxed runtime can execute it safely.
-        target: 'es2017'
+        target: 'es2017',
+        // Produce a single JS bundle so the postbuild inliner can embed everything for GAS.
+        cssCodeSplit: false,
+        assetsInlineLimit: 100000000, // inline small assets into the bundle
+        rollupOptions: {
+          output: {
+            inlineDynamicImports: true,
+            manualChunks: undefined,
+            format: 'iife',
+            entryFileNames: 'assets/index-[hash].js',
+            name: 'AppBundle'
+          }
+        }
       },
       resolve: {
         alias: {

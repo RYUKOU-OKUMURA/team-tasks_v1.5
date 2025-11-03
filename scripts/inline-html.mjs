@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 const distDir = 'dist';
 const htmlPath = join(distDir, 'index.html');
-const inlinePath = join(distDir, 'index-inline.html');
+const inlinePath = 'index-inline.html';
 
 async function ensureFileExists(path) {
   try {
@@ -39,11 +39,20 @@ async function buildInlineHtml() {
   const bundle = await readFile(assetPath, 'utf8');
   const scriptJson = JSON.stringify(bundle);
   const inlineScript = `<script>
-(function(){
-  const script = document.createElement('script');
-  script.type = 'module';
-  script.text = ${scriptJson};
-  document.currentScript.replaceWith(script);
+;(function(){
+  function run(){
+    const script = document.createElement('script');
+    // Use a classic script so it runs in GAS sandbox without ESM support
+    script.type = 'text/javascript';
+    script.text = ${scriptJson};
+    // Insert at end of body so React can find #root
+    (document.body || document.documentElement).appendChild(script);
+  }
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', run, { once: true });
+  } else {
+    run();
+  }
 })();
 </script>`;
   html = html.replace(scriptTagRegex, () => inlineScript);
