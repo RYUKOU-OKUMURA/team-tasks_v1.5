@@ -1,0 +1,5 @@
+{
+  "name": "Team Tasks",
+  "description": "A task management system inspired by Google Apps Script specifications. It allows managers to assign tasks via a simple command interface, and for employees to track and report on their work. The application provides different views and capabilities based on user roles (Admin or User).",
+  "requestFramePermissions": []
+}
