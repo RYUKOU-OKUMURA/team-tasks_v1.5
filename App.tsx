@@ -39,6 +39,34 @@ const App: React.FC = () => {
         return { ok: false, message: '担当者が見つかりません。' };
     }
 
+    // サブタスクの場合は親タスクの期日を使用し、AIによる日付抽出をスキップ
+    if (parentTaskId) {
+      const parentTask = tasks.find(t => t.id === parentTaskId);
+      if (!parentTask) {
+        setIsCreatingTask(false);
+        return { ok: false, message: '親タスクが見つかりません。' };
+      }
+
+      const newTask: Task = {
+        id: crypto.randomUUID(),
+        title: text.trim(),
+        assigneeEmail: assignee.email,
+        assigneeName: assignee.displayName,
+        dueDate: parentTask.dueDate, // 親タスクの期日を使用
+        priority: priority,
+        status: TaskStatus.TODO,
+        createdBy: currentUser.email,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        parentTaskId: parentTaskId,
+      };
+
+      setTasks(prevTasks => [newTask, ...prevTasks]);
+      setIsCreatingTask(false);
+      return { ok: true, message: 'サブタスクを作成しました。' };
+    }
+
+    // 通常のタスクの場合、AIで日付抽出を行う
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
