@@ -4,6 +4,7 @@ declare namespace google {
       withSuccessHandler(handler: (result: any) => void): Run;
       withFailureHandler(handler: (error: Error) => void): Run;
       getCurrentUser(): void;
+      getUsers(): void;
       getTasks(): void;
       createTask(taskData: any): void;
       updateTask(taskId: string, updates: any): void;

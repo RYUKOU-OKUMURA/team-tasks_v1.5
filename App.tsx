@@ -1,7 +1,5 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Task, User, TaskStatus, UserRole, TaskPriority, Filter } from './types';
-import { USERS, TASKS } from './constants';
 import { parseMMDD, isOverdue } from './utils/dateUtils';
 import Header from './components/Header';
 import TaskInput from './components/TaskInput';
@@ -11,9 +9,9 @@ import TaskModal from './components/TaskModal';
 import UserDashboard from './components/UserDashboard';
 
 const App: React.FC = () => {
-  const [users] = useState<User[]>(USERS);
-  const [tasks, setTasks] = useState<Task[]>(TASKS);
-  const [currentUserEmail, setCurrentUserEmail] = useState<string>(users[0].email);
+  const [users, setUsers] = useState<User[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [filters, setFilters] = useState<Filter>({
@@ -21,8 +19,45 @@ const App: React.FC = () => {
     priority: '',
     showOverdue: false,
   });
+  const [isLoading, setIsLoading] = useState(true);
 
-  const currentUser = useMemo(() => users.find(u => u.email === currentUserEmail)!, [users, currentUserEmail]);
+  // 初期データの読み込み
+  useEffect(() => {
+    setIsLoading(true);
+    
+    // ユーザー情報の取得
+    google.script.run
+      .withSuccessHandler((user: User) => {
+        setCurrentUser(user);
+      })
+      .withFailureHandler((error: Error) => {
+        console.error('ユーザー情報の取得に失敗しました', error);
+        setIsLoading(false);
+      })
+      .getCurrentUser();
+
+    // ユーザー一覧の取得
+    google.script.run
+      .withSuccessHandler((usersList: User[]) => {
+        setUsers(usersList);
+      })
+      .withFailureHandler((error: Error) => {
+        console.error('ユーザー一覧の取得に失敗しました', error);
+      })
+      .getUsers();
+
+    // タスク一覧の取得
+    google.script.run
+      .withSuccessHandler((tasksList: Task[]) => {
+        setTasks(tasksList);
+        setIsLoading(false);
+      })
+      .withFailureHandler((error: Error) => {
+        console.error('タスクの取得に失敗しました', error);
+        setIsLoading(false);
+      })
+      .getTasks();
+  }, []);
 
   const handleAddTask = async (taskDetails: { text: string; assigneeEmail: string; priority: TaskPriority, parentTaskId?: string }): Promise<{ ok: boolean; message: string }> => {
     setIsCreatingTask(true);
@@ -33,6 +68,11 @@ const App: React.FC = () => {
         return { ok: false, message: 'タスク内容を入力してください。' };
     }
     
+    if (!currentUser) {
+        setIsCreatingTask(false);
+        return { ok: false, message: 'ユーザー情報が取得できませんでした。' };
+    }
+
     const assignee = users.find(u => u.email === assigneeEmail);
     if (!assignee) {
         setIsCreatingTask(false);
@@ -47,127 +87,147 @@ const App: React.FC = () => {
         return { ok: false, message: '親タスクが見つかりません。' };
       }
 
-      const newTask: Task = {
-        id: crypto.randomUUID(),
-        title: text.trim(),
-        assigneeEmail: assignee.email,
-        assigneeName: assignee.displayName,
-        dueDate: parentTask.dueDate, // 親タスクの期日を使用
-        priority: priority,
-        status: TaskStatus.TODO,
-        createdBy: currentUser.email,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        parentTaskId: parentTaskId,
-      };
-
-      setTasks(prevTasks => [newTask, ...prevTasks]);
-      setIsCreatingTask(false);
-      return { ok: true, message: 'サブタスクを作成しました。' };
+      return new Promise((resolve) => {
+        google.script.run
+          .withSuccessHandler((newTask: Task) => {
+            setTasks(prevTasks => [newTask, ...prevTasks]);
+            setIsCreatingTask(false);
+            resolve({ ok: true, message: 'サブタスクを作成しました。' });
+          })
+          .withFailureHandler((error: Error) => {
+            console.error('タスクの追加に失敗しました', error);
+            setIsCreatingTask(false);
+            resolve({ ok: false, message: `タスク作成中にエラーが発生しました: ${error.message}` });
+          })
+          .createTask({
+            title: text.trim(),
+            assigneeEmail: assignee.email,
+            assigneeName: assignee.displayName,
+            dueDate: parentTask.dueDate,
+            priority: priority,
+            status: TaskStatus.TODO,
+            parentTaskId: parentTaskId,
+          });
+      });
     }
 
     // 通常のタスクの場合、AIで日付抽出を行う
-    try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `以下のテキストからタスクのタイトルと日付を抽出してください。日付はMM/DD形式で返してください。日付が明記されていない場合は、dueDateをnullにしてください。\n\nテキスト: "${text}"`,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              title: {
-                type: Type.STRING,
-                description: '抽出されたタスクのタイトル',
-              },
-              dueDate: {
-                type: Type.STRING,
-                description: '抽出された日付 (MM/DD形式)。見つからない場合はnull。',
-              },
-            },
-            required: ['title', 'dueDate'],
-          },
-        },
-      });
+    return new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler((aiResult: { title: string; dueDate: string | null }) => {
+          try {
+            const { title, dueDate: extractedDueDate } = aiResult;
 
-      const resultJson = JSON.parse(response.text);
-      const { title, dueDate: extractedDueDate } = resultJson;
+            if (!title) {
+                setIsCreatingTask(false);
+                resolve({ ok: false, message: 'テキストからタスクのタイトルを抽出できませんでした。' });
+                return;
+            }
+            
+            if (!extractedDueDate) {
+                setIsCreatingTask(false);
+                resolve({ ok: false, message: 'テキストから日付を抽出できませんでした。日付を明確に記載してください (例: 11/20までに)' });
+                return;
+            }
 
-      if (!title) {
+            const dueDate = parseMMDD(extractedDueDate);
+            if (new Date(dueDate) < new Date(new Date().toDateString())) {
+               setIsCreatingTask(false);
+               resolve({ ok: false, message: '過去の日付は指定できません' });
+               return;
+            }
+
+            // タスクを作成
+            google.script.run
+              .withSuccessHandler((newTask: Task) => {
+                setTasks(prevTasks => [newTask, ...prevTasks]);
+                setIsCreatingTask(false);
+                resolve({ ok: true, message: 'タスクを作成しました。' });
+              })
+              .withFailureHandler((error: Error) => {
+                console.error('タスクの追加に失敗しました', error);
+                setIsCreatingTask(false);
+                resolve({ ok: false, message: `タスク作成中にエラーが発生しました: ${error.message}` });
+              })
+              .createTask({
+                title: title,
+                assigneeEmail: assignee.email,
+                assigneeName: assignee.displayName,
+                dueDate: dueDate,
+                priority: priority,
+                status: TaskStatus.TODO,
+              });
+          } catch (error) {
+            console.error("Error processing AI result:", error);
+            setIsCreatingTask(false);
+            resolve({ ok: false, message: `タスク作成中にエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}` });
+          }
+        })
+        .withFailureHandler((error: Error) => {
+          console.error("Error calling AI:", error);
           setIsCreatingTask(false);
-          return { ok: false, message: 'テキストからタスクのタイトルを抽出できませんでした。' };
-      }
-      
-      if (!extractedDueDate) {
-          setIsCreatingTask(false);
-          return { ok: false, message: 'テキストから日付を抽出できませんでした。日付を明確に記載してください (例: 11/20までに)' };
-      }
-
-      const dueDate = parseMMDD(extractedDueDate);
-      if (new Date(dueDate) < new Date(new Date().toDateString())) {
-         setIsCreatingTask(false);
-         return { ok: false, message: '過去の日付は指定できません' };
-      }
-
-      const newTask: Task = {
-        id: crypto.randomUUID(),
-        title: title,
-        assigneeEmail: assignee.email,
-        assigneeName: assignee.displayName,
-        dueDate: dueDate,
-        priority: priority,
-        status: TaskStatus.TODO,
-        createdBy: currentUser.email,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        parentTaskId: parentTaskId,
-      };
-
-      setTasks(prevTasks => [newTask, ...prevTasks]);
-      return { ok: true, message: 'タスクを作成しました。' };
-    } catch (error) {
-        console.error("Error creating task:", error);
-        if (error instanceof Error) {
-            return { ok: false, message: `タスク作成中にエラーが発生しました: ${error.message}` };
-        }
-        return { ok: false, message: 'タスク作成中に不明なエラーが発生しました。' };
-    } finally {
-        setIsCreatingTask(false);
-    }
+          resolve({ ok: false, message: `タスク作成中にエラーが発生しました: ${error.message}` });
+        })
+        .parseTaskWithAI(text);
+    });
   };
   
   const handleUpdateTask = useCallback((updatedTask: Task) => {
-    setTasks(prevTasks =>
-      prevTasks.map(task =>
-        task.id === updatedTask.id
-          ? { ...updatedTask, updatedAt: new Date().toISOString() }
-          : task
-      )
-    );
-    setEditingTask(null);
+    google.script.run
+      .withSuccessHandler((updated: Task) => {
+        setTasks(prevTasks =>
+          prevTasks.map(task =>
+            task.id === updated.id ? updated : task
+          )
+        );
+        setEditingTask(null);
+      })
+      .withFailureHandler((error: Error) => {
+        console.error('タスクの更新に失敗しました', error);
+        alert(`タスクの更新に失敗しました: ${error.message}`);
+      })
+      .updateTask(updatedTask.id, {
+        title: updatedTask.title,
+        assigneeEmail: updatedTask.assigneeEmail,
+        assigneeName: updatedTask.assigneeName,
+        dueDate: updatedTask.dueDate,
+        priority: updatedTask.priority,
+        status: updatedTask.status,
+      });
   }, []);
 
   const handleDeleteTask = useCallback((taskId: string) => {
-    setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId || prevTasks.some(t => t.parentTaskId === taskId)));
-    // Also delete subtasks
-    setTasks(prevTasks => prevTasks.filter(task => task.parentTaskId !== taskId));
+    google.script.run
+      .withSuccessHandler(() => {
+        // タスクとサブタスクを削除
+        setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId && task.parentTaskId !== taskId));
+      })
+      .withFailureHandler((error: Error) => {
+        console.error('タスクの削除に失敗しました', error);
+        alert(`タスクの削除に失敗しました: ${error.message}`);
+      })
+      .deleteTask(taskId);
   }, []);
 
   const handleStatusChange = useCallback((taskId: string, newStatus: TaskStatus) => {
-    setTasks(prevTasks =>
-      prevTasks.map(task =>
-        task.id === taskId
-          ? { ...task, status: newStatus, updatedAt: new Date().toISOString() }
-          : task
-      )
-    );
+    google.script.run
+      .withSuccessHandler((updated: Task) => {
+        setTasks(prevTasks =>
+          prevTasks.map(task =>
+            task.id === taskId ? updated : task
+          )
+        );
+      })
+      .withFailureHandler((error: Error) => {
+        console.error('タスクのステータス更新に失敗しました', error);
+        alert(`タスクのステータス更新に失敗しました: ${error.message}`);
+      })
+      .updateTask(taskId, { status: newStatus });
   }, []);
 
 
   const adminFilteredTasks = useMemo(() => {
-    if (currentUser.role !== UserRole.ADMIN) return [];
+    if (!currentUser || currentUser.role !== UserRole.ADMIN) return [];
     
     let tasksToShow = tasks.filter(task => !task.parentTaskId);
 
@@ -182,24 +242,31 @@ const App: React.FC = () => {
     }
     
     return tasksToShow.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-  }, [tasks, currentUser.role, filters]);
+  }, [tasks, currentUser, filters]);
   
   const userTasks = useMemo(() => {
-    if (currentUser.role !== UserRole.USER) return [];
+    if (!currentUser || currentUser.role !== UserRole.USER) return [];
     
     return tasks
       .filter(task => !task.parentTaskId && task.assigneeEmail === currentUser.email)
       .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-  }, [tasks, currentUser.role, currentUser.email]);
+  }, [tasks, currentUser]);
 
+
+  if (isLoading || !currentUser) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-800 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600">読み込み中...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
-      <Header
-        users={users}
-        currentUser={currentUser}
-        onUserChange={setCurrentUserEmail}
-      />
+      <Header currentUser={currentUser} />
       <main className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
         {currentUser.role === UserRole.ADMIN ? (
           <>

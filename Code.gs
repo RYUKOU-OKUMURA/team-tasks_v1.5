@@ -63,6 +63,19 @@ function saveUsers(users) {
 }
 
 /**
+ * ユーザー一覧を取得
+ */
+function getUsers() {
+  try {
+    const usersJson = PropertiesService.getScriptProperties().getProperty('USERS');
+    return usersJson ? JSON.parse(usersJson) : [];
+  } catch (error) {
+    Logger.log('getUsers error: ' + error.toString());
+    throw error;
+  }
+}
+
+/**
  * タスクデータをストレージから読み込み
  */
 function loadTasksFromStorage() {
@@ -194,6 +207,7 @@ function deleteTask(taskId) {
 
 /**
  * Gemini API呼び出し（サーバー側）
+ * タスクの説明からタイトルと日付を抽出してJSON形式で返す
  */
 function parseTaskWithAI(description) {
   try {
@@ -203,14 +217,19 @@ function parseTaskWithAI(description) {
       throw new Error('Gemini APIキーが設定されていません');
     }
 
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=' + apiKey;
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
+
+    const prompt = '以下のテキストからタスクのタイトルと日付を抽出してください。日付はMM/DD形式で返してください。日付が明記されていない場合は、dueDateをnullにしてください。\n\nテキスト: "' + description + '"\n\nJSON形式で返してください。形式: {"title": "タスクのタイトル", "dueDate": "MM/DDまたはnull"}';
 
     const payload = {
       contents: [{
         parts: [{
-          text: '以下のタスク説明から、タイトル、詳細、期限、優先度を抽出してJSON形式で返してください:\n' + description
+          text: prompt
         }]
-      }]
+      }],
+      generationConfig: {
+        responseMimeType: 'application/json'
+      }
     };
 
     const options = {
@@ -220,9 +239,18 @@ function parseTaskWithAI(description) {
     };
 
     const response = UrlFetchApp.fetch(url, options);
-    const result = JSON.parse(response.getContentText());
+    const responseText = response.getContentText();
+    const result = JSON.parse(responseText);
 
-    return result;
+    // Gemini APIのレスポンスからテキストを抽出
+    if (result.candidates && result.candidates[0] && result.candidates[0].content && result.candidates[0].content.parts) {
+      const text = result.candidates[0].content.parts[0].text;
+      // JSONをパース
+      const parsed = JSON.parse(text);
+      return parsed;
+    }
+
+    throw new Error('APIレスポンスの形式が不正です');
   } catch (error) {
     Logger.log('parseTaskWithAI error: ' + error.toString());
     throw error;

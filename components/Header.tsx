@@ -2,12 +2,10 @@ import React from 'react';
 import { User } from '../types';
 
 interface HeaderProps {
-  users: User[];
   currentUser: User;
-  onUserChange: (email: string) => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ users, currentUser, onUserChange }) => {
+const Header: React.FC<HeaderProps> = ({ currentUser }) => {
   return (
     <header className="bg-white shadow-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -20,17 +18,9 @@ const Header: React.FC<HeaderProps> = ({ users, currentUser, onUserChange }) => 
           </div>
           <div className="flex items-center space-x-3">
             <span className="hidden sm:inline text-sm text-slate-500">ログインユーザー:</span>
-            <select
-              value={currentUser.email}
-              onChange={(e) => onUserChange(e.target.value)}
-              className="p-2 bg-white border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
-            >
-              {users.map(user => (
-                <option key={user.email} value={user.email}>
-                  {user.displayName} ({user.role === 'ADMIN' ? '管理者' : '社員'})
-                </option>
-              ))}
-            </select>
+            <span className="text-sm font-medium text-slate-700">
+              {currentUser.displayName} ({currentUser.role === 'ADMIN' ? '管理者' : '社員'})
+            </span>
           </div>
         </div>
       </div>
