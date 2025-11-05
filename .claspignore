@@ -13,10 +13,8 @@
 package*.json
 .env.local
 
-# Ignore documentation files
-README.md
+# Ignore documentation files (except important guides)
 ARCHITECTURE.md
-*.md
 
 # Ignore bundled assets; keep inline HTML entry point
 dist/assets/**
