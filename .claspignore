@@ -15,12 +15,19 @@ package*.json
 
 # Ignore documentation files (except important guides)
 ARCHITECTURE.md
+README.md
+*.md
+!GAS-WebApp-Development-Guide-ja.md
+!AUTHENTICATION_IMPLEMENTATION_PLAN.md
 
-# Ignore bundled assets; keep inline HTML entry point
-dist/assets/**
-dist/**/*.js
-dist/**/*.ts
-dist/**/*.tsx
-src/**
+# Ignore all dist files and build artifacts
+dist/**
+
+# Ignore source HTML (only push index-inline.html)
+index.html
+
+# Keep only these files
 !appsscript.json
 !metadata.json
+!Code.gs
+!index-inline.html
