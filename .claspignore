@@ -23,11 +23,9 @@ README.md
 # Ignore all dist files and build artifacts
 dist/**
 
-# Ignore source HTML (only push index-inline.html)
-index.html
-
 # Keep only these files
 !appsscript.json
 !metadata.json
 !Code.gs
+!index.html
 !index-inline.html
