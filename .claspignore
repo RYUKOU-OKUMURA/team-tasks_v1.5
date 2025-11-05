@@ -11,8 +11,12 @@
 **/*.mjs
 **/*.es.js
 package*.json
-README.md
 .env.local
+
+# Ignore documentation files
+README.md
+ARCHITECTURE.md
+*.md
 
 # Ignore bundled assets; keep inline HTML entry point
 dist/assets/**

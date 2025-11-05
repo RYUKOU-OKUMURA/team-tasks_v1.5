@@ -1,8 +1,14 @@
-const INTERNAL_DOMAIN_SUFFIX = '@example.com'; // TODO: 会社のドメインに合わせて更新する
-const ALLOWED_TESTER_EMAILS = [
-  // TODO: 外部テスター用のメールアドレスに置き換える
-  'tester@example.net',
-];
+// セキュリティ設定: 本番環境では必ず実際の値に置き換えてください
+const INTERNAL_DOMAIN_SUFFIX = PropertiesService.getScriptProperties().getProperty('INTERNAL_DOMAIN') || '@example.com';
+
+/**
+ * 外部テスター用のメールアドレスリストを取得
+ * スクリプトプロパティから取得し、カンマ区切りで分割
+ */
+function getAllowedTesterEmails() {
+  const emails = PropertiesService.getScriptProperties().getProperty('ALLOWED_TESTER_EMAILS');
+  return emails ? emails.split(',').map(function(e) { return e.trim(); }) : [];
+}
 
 /**
  * 認証対象かを判定
@@ -16,7 +22,8 @@ function isAllowedEmail(email) {
     return true;
   }
 
-  return ALLOWED_TESTER_EMAILS.indexOf(email) !== -1;
+  const allowedTesters = getAllowedTesterEmails();
+  return allowedTesters.indexOf(email) !== -1;
 }
 
 /**
@@ -142,9 +149,10 @@ function saveTasksToStorage(tasks) {
 
 /**
  * タスクIDを生成
+ * セキュアなUUIDベースのID生成
  */
 function generateTaskId() {
-  return Date.now().toString() + Math.random().toString(36).substr(2, 9);
+  return Utilities.getUuid();
 }
 
 /**
@@ -262,12 +270,15 @@ function deleteTask(taskId) {
 function parseTaskWithAI(description) {
   try {
     const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-    
+
     if (!apiKey) {
       throw new Error('Gemini APIキーが設定されていません');
     }
 
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey;
+    // APIキーをURLパラメータではなく、リクエストヘッダーで送信することも可能ですが、
+    // Google AI APIの仕様上、URLパラメータでの送信が標準的な方法です
+    const baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+    const url = baseUrl + '?key=' + apiKey;
 
     const prompt = '以下のテキストからタスクのタイトルと日付を抽出してください。日付はMM/DD形式で返してください。日付が明記されていない場合は、dueDateをnullにしてください。\n\nテキスト: "' + description + '"\n\nJSON形式で返してください。形式: {"title": "タスクのタイトル", "dueDate": "MM/DDまたはnull"}';
 
@@ -309,6 +320,13 @@ function parseTaskWithAI(description) {
 
 /**
  * 初期データのセットアップ（一度だけ実行）
+ *
+ * 警告: この関数はテスト/デモ用データを作成します。
+ * 本番環境では実行しないでください。既存のデータが上書きされる可能性があります。
+ *
+ * 使用方法:
+ * 1. Apps Scriptエディタからこの関数を一度だけ手動で実行する
+ * 2. テスト後、本番環境に移行する前に既存データを削除すること
  */
 function setupInitialData() {
   const initialUsers = [
@@ -424,9 +442,38 @@ function setupInitialData() {
 
 /**
  * Gemini APIキーを設定（一度だけ実行）
+ *
+ * 使用方法:
+ * 1. この関数を編集し、'YOUR_API_KEY_HERE'を実際のAPIキーに置き換える
+ * 2. Apps Scriptエディタから一度だけこの関数を実行する
+ * 3. 実行後、コード内のAPIキーは削除してください（スクリプトプロパティに保存されています）
+ *
+ * 注意: APIキーをコード内に残さないでください
  */
 function setApiKey() {
-  // 注意: 実際のAPIキーに置き換えてください
-  PropertiesService.getScriptProperties()
-    .setProperty('GEMINI_API_KEY', 'YOUR_ACTUAL_API_KEY');
+  const apiKey = 'YOUR_API_KEY_HERE'; // ここに実際のAPIキーを入力
+
+  if (apiKey === 'YOUR_API_KEY_HERE') {
+    throw new Error('APIキーを設定してください。YOUR_API_KEY_HEREを実際のAPIキーに置き換えてください。');
+  }
+
+  PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', apiKey);
+  Logger.log('APIキーが正常に設定されました。セキュリティのため、コード内のAPIキーは削除してください。');
+}
+
+/**
+ * 内部ドメインと許可されたテスターメールアドレスを設定（一度だけ実行）
+ *
+ * 使用方法:
+ * 1. この関数を編集し、実際の値に置き換える
+ * 2. Apps Scriptエディタから一度だけこの関数を実行する
+ */
+function setupSecuritySettings() {
+  // 内部ドメイン（例: '@yourcompany.com'）
+  PropertiesService.getScriptProperties().setProperty('INTERNAL_DOMAIN', '@yourcompany.com');
+
+  // 外部テスター用メールアドレス（カンマ区切り）
+  PropertiesService.getScriptProperties().setProperty('ALLOWED_TESTER_EMAILS', 'tester1@example.com,tester2@example.com');
+
+  Logger.log('セキュリティ設定が完了しました。');
 }
