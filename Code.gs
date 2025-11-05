@@ -1,3 +1,45 @@
+const INTERNAL_DOMAIN_SUFFIX = '@example.com'; // TODO: 会社のドメインに合わせて更新する
+const ALLOWED_TESTER_EMAILS = [
+  // TODO: 外部テスター用のメールアドレスに置き換える
+  'tester@example.net',
+];
+
+/**
+ * 認証対象かを判定
+ */
+function isAllowedEmail(email) {
+  if (!email) {
+    return false;
+  }
+
+  if (email.endsWith(INTERNAL_DOMAIN_SUFFIX)) {
+    return true;
+  }
+
+  return ALLOWED_TESTER_EMAILS.indexOf(email) !== -1;
+}
+
+/**
+ * ユーザー情報を追加・更新
+ */
+function upsertUser(user) {
+  if (!user || !user.email) {
+    throw new Error('user.email is required');
+  }
+
+  const users = getUsers();
+  const userIndex = users.findIndex(function(u) { return u.email === user.email; });
+
+  if (userIndex === -1) {
+    users.push(user);
+  } else {
+    users[userIndex] = user;
+  }
+
+  saveUsers(users);
+  return user;
+}
+
 /**
  * Serves the main HTML page with authentication
  */
@@ -5,10 +47,8 @@ function doGet() {
   try {
     const userEmail = Session.getActiveUser().getEmail();
 
-    // ドメイン制限（社内メールのみ）
-    // 注意: 実際のドメインに変更してください（例: @yourcompany.com）
-    if (!userEmail.endsWith('@example.com')) {
-      return HtmlService.createHtmlOutput('アクセスが拒否されました。社内メールアドレスが必要です。');
+    if (!isAllowedEmail(userEmail)) {
+      return HtmlService.createHtmlOutput('アクセスが拒否されました。社内メールアドレスもしくは許可済みのテスター用メールアドレスが必要です。');
     }
 
     const template = HtmlService.createTemplateFromFile('index-inline');
@@ -29,10 +69,20 @@ function doGet() {
 function getCurrentUser() {
   try {
     const email = Session.getActiveUser().getEmail();
-    const userInfo = getUserInfo(email);
+    let userInfo = getUserInfo(email);
 
     if (!userInfo) {
-      throw new Error('ユーザーが見つかりません');
+      if (!isAllowedEmail(email)) {
+        throw new Error('ユーザーが見つかりません');
+      }
+
+      userInfo = {
+        email: email,
+        displayName: email,
+        role: 'USER'
+      };
+
+      upsertUser(userInfo);
     }
 
     return {
